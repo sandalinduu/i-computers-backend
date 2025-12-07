@@ -10,3 +10,7 @@ productRoutes.delete("/:productId",deleteProduct)
 productRoutes.put("/:productId",updateProduct)
 
 export default productRoutes;
+
+
+
+

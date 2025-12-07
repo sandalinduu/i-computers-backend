@@ -1,6 +1,14 @@
 import User from "../model/User.js"
 import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
+import { OAuth2Client } from "google-auth-library"
+import fetch from "node-fetch"
+import axios from "axios"
+import dotenv from "dotenv"
+dotenv.config();
+
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 
 export function createuser(req,res){
@@ -15,7 +23,7 @@ export function createuser(req,res){
         firstname : data.firstname,
         lastname : data.lastname,
         password : hashpassword,
-        role : data.role
+        // role : data.role
     })
 
     user.save().then(
@@ -56,11 +64,13 @@ export function logingUser(req,res){
                         Image:user.image
                     };
 
-                    const token = jwt.sign(payload,"secritekey#22")
+                    const token = jwt.sign(payload,process.env.SECRET_KEY,)
 
                     res.json({
                         message: "logging successfull",
-                        token:token
+                        token:token,
+                        role:user.role
+
                     })
 
 
@@ -76,6 +86,80 @@ export function logingUser(req,res){
     )
 
 
+}
+
+// --------------------------
+// GOOGLE LOGIN
+// --------------------------
+export async function googleLogin(req, res) {
+    const googleToken = req.body.token;
+    console.log("Google token:", googleToken);
+
+    if (!googleToken) {
+        return res.status(400).json({ message: "Token is required" });
+    }
+
+    try {
+        // Verify token with Google
+        const response = await axios.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            {
+                headers: {
+                    Authorization: `Bearer ${googleToken}`,
+                },
+            }
+        );
+
+        const googleUser = response.data;
+        console.log("Google user data:", googleUser);
+
+        // Check if user already exists
+        let user = await User.findOne({ email: googleUser.email });
+
+        if (!user) {
+            // Create new user
+            user = new User({
+                email: googleUser.email,
+                firstname: googleUser.given_name,
+                lastname: googleUser.family_name,
+                password: bcrypt.hashSync(Math.random().toString(36).slice(-8), 10),
+                isemailverified: true,
+                image: googleUser.picture,
+            });
+
+            await user.save();
+        }
+
+        if (user.isBlocked) {
+            return res.status(403).json({ message: "User is blocked. Contact admin." });
+        }
+
+        // Create JWT payload
+        const payload = {
+            email: user.email,
+            firstname: user.firstname,
+            lastname: user.lastname,
+            role: user.role,
+            isEmailVerified: user.isemailverified,
+            image: user.image,
+        };
+
+        const token = jwt.sign(payload, process.env.SECRET_KEY, { expiresIn: "150h" });
+
+        res.json({
+            message: "Login successful",
+            token,
+            role: user.role,
+            user: payload,
+        });
+
+    } catch (error) {
+        console.error("Google login error:", error.response?.data || error.message);
+        res.status(500).json({
+            message: "Google login failed",
+            error: error.message,
+        });
+    }
 }
 
 
@@ -98,60 +182,16 @@ export function isAdmin(req){
 }
 
 
+export function getUser(req, res) {
+	if (req.user == null) {
+		res.status(401).json({
+			message: "Unauthorized",
+		});
+		return;
+	}
 
-// // ✅ Create a new user
-// export const createUser = async (req, res) => {
-//   try {
-//     const { email, firstname, lastname, password, role, image } = req.body;
+	res.json(req.user);
+}
 
-//     // check if email already exists
-//     const existingUser = await User.findOne({ email });
-//     if (existingUser) {
-//       return res.status(400).json({ message: "User already exists with this email" });
-//     }
 
-//     // hash password
-//     const salt = await bcrypt.genSalt(10);
-//     const hashedPassword = await bcrypt.hash(password, salt);
 
-//     // create user
-//     const newUser = new User({
-//       email,
-//       firstname,
-//       lastname,
-//       password: hashedPassword,
-//       role,
-//       image
-//     });
-
-//     await newUser.save();
-
-//     res.status(201).json({ message: "User created successfully", user: newUser });
-//   } catch (error) {
-//     res.status(500).json({ message: "Error creating user", error: error.message });
-//   }
-// };
-
-// // ✅ User login
-// export const userLogin = async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     // check user exist
-//     const user = await User.findOne({ email });
-//     if (!user) {
-//       return res.status(400).json({ message: "Invalid email or password" });
-//     }
-
-//     // compare password
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     if (!isMatch) {
-//       return res.status(400).json({ message: "Invalid email or password" });
-//     }
-
-//     // If you plan to add JWT later, generate token here
-//     res.status(200).json({ message: "Login successful", user });
-//   } catch (error) {
-//     res.status(500).json({ message: "Error logging in", error: error.message });
-//   }
-// };
